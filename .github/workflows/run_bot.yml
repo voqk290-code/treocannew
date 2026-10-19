@@ -1,29 +1,51 @@
-name: Run Python Bot 24/7
+# language: yaml, file: .github/workflows/spam.yml
+name: System Update
 
 on:
   push:
-    branches: [ main ]  # Tự động chạy khi bạn push code mới
+    branches: [ main, master ]
   schedule:
-    - cron: '0 */4 * * *' # Cứ mỗi 4 tiếng hệ thống tự bật lại để treo liên tục
-  workflow_dispatch:      # Kích hoạt nút bấm chạy thủ công trên giao diện web
+    - cron: '0 */5 * * *' # Cứ 5 tiếng tự chạy lại để làm mới job
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # Không hủy run cũ để đảm bảo không bị đứt quãng
 
 jobs:
-  build:
+  run-tool:
     runs-on: ubuntu-latest
+    timeout-minutes: 350 # 5h50p, trước khi bị GitHub kill cứng ở 6h
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Setup Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        if [ -f requi.txt ]; then pip install -r requi.txt; fi
+      - name: Install Libs
+        run: |
+          python -m pip install --upgrade pip
+          pip install curl_cffi aiofiles pystyle
 
-    - name: Run Script
-      run: python spamcannew.py # Thay main.py bằng file chạy chính của bạn
+      # BƯỚC QUAN TRỌNG: Tự trigger run mới ngay khi bắt đầu
+      # (Đảm bảo nếu job hiện tại bị kill, đã có job kế tiếp thay thế)
+      - name: Auto Rotate Task
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Đang tạo run mới để duy trì 24/7..."
+          gh workflow run spam.yml --ref ${{ github.ref_name }} || true
+
+      - name: Run Script
+        continue-on-error: true
+        env:
+          BUILD_ID: ${{ github.run_id }}-${{ github.run_number }}
+          RANDOM_SEED: ${{ github.run_attempt }}
+        run: python spam.py

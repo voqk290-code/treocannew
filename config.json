@@ -1,0 +1,8 @@
+// language: json, file: config.json
+{
+  "mode": "1",
+  "tag_ids": [],
+  "channel_ids": [1561711951698989118],
+  "delay": 0.2,
+  "loop_count": 0
+}

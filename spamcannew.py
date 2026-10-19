@@ -1,4 +1,4 @@
-# language: Python, file: tool.py, target: Windows/Linux, Python 3.10+
+# language: Python, file: spam.py, target: Linux (GitHub Actions), Python 3.10+
 # pip install curl_cffi aiofiles pystyle
 import asyncio
 import random
@@ -12,20 +12,16 @@ import sys
 try:
     import aiofiles
     from curl_cffi.requests import AsyncSession
-    from pystyle import Colorate, Colors, System
+    from pystyle import Colorate, Colors
 except ImportError:
-    print("Vui lòng cài đặt thư viện bằng lệnh: pip install curl_cffi aiofiles pystyle")
-    exit()
+    sys.exit(1)
 
-RAINBOW_7 = [196, 208, 226, 46, 51, 21, 129]
-RESET = "\033[0m"
-SECRET_KEY = "k3y_b4o_m4t_cu4_ban_2024"  # Phải trùng với key trong encryptor.py
+SECRET_KEY = "k3y_b4o_m4t_cu4_ban_2024"
 
 def xor_decrypt(data: str, key: str) -> str:
     return "".join(chr(ord(c) ^ ord(key[i % len(key)])) for i, c in enumerate(data))
 
 def read_encrypted_file(filepath):
-    """Đọc file .enc, giải mã Base64 -> XOR -> List các dòng."""
     enc_path = filepath + ".enc"
     if not os.path.exists(enc_path):
         return []
@@ -37,72 +33,6 @@ def read_encrypted_file(filepath):
         return decrypted.splitlines()
     except Exception:
         return []
-
-def clear_screen():
-    System.Clear()
-
-def _rgb_ansi(idx):
-    return f"\033[38;5;{idx}m"
-
-def rainbow_line(text, offset):
-    out = []
-    for i, ch in enumerate(text):
-        color = RAINBOW_7[(i + offset) % len(RAINBOW_7)]
-        out.append(f"{_rgb_ansi(color)}{ch}")
-    out.append(RESET)
-    return "".join(out)
-
-def _kbhit():
-    try:
-        import msvcrt
-        return msvcrt.kbhit()
-    except ImportError:
-        import select
-        return select.select([sys.stdin], [], [], 0)[0] != []
-
-def _getch():
-    try:
-        import msvcrt
-        return msvcrt.getch()
-    except ImportError:
-        return sys.stdin.read(1)
-
-def display_info_banner():
-    banner = r"""
- ██╗  ██╗██╗    ██╗███╗   ██╗ ██████╗
- ██║ ██╔╝██║    ██║████╗  ██║██╔════╝
- █████╔╝ ██║ █╗ ██║██╔██╗ ██║██║  ███╗
- ██╔═██╗ ██║███╗██║██║╚██╗██║██║   ██║
- ██║  ██╗╚███╔███╔╝██║ ╚████║╚██████╔╝
- ╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═══╝ ╚═════╝
-    """
-    box_content = """
-    TOOL SPAM DISCORD - BẢN TỐI ƯU HÓA PRO
-    [+] Coder: KWNG
-    [+] Chức năng: Treo Trụ, Nhây, Gõ
-    """
-
-    title_lines = banner.strip("\n").split("\n")
-    box_lines = box_content.strip("\n").split("\n")
-
-    offset = 0
-    while True:
-        System.Clear()
-        print()
-        for line in title_lines:
-            print(rainbow_line(line.center(60), offset))
-        print()
-        for line in box_lines:
-            print(rainbow_line(line.center(60), offset))
-        print()
-        sys.stdout.flush()
-
-        if _kbhit():
-            _getch()
-            break
-
-        offset = (offset + 1) % len(RAINBOW_7)
-        time.sleep(0.08)
 
 def get_headers(token):
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -273,127 +203,95 @@ class TurboClient:
                 await asyncio.sleep(wait)
             round_idx += 1
 
+
 async def main():
-    clear_screen()
-    display_info_banner()
+    # 1. Đọc config từ file .enc
+    config_lines = read_encrypted_file("config.json")
+    if not config_lines:
+        print("❌ Thiếu file config.json.enc")
+        return
+    try:
+        config = json.loads("\n".join(config_lines))
+    except Exception as e:
+        print(f"❌ Lỗi parse JSON config: {e}")
+        return
+
+    choice = str(config.get("mode", "1"))
+    if choice == '1':
+        file_ngon = "ngon.txt"
+    elif choice == '2':
+        file_ngon = "ngonnhay.txt"
+    elif choice == '3':
+        file_ngon = "ngongo.txt"
+    else:
+        print("❌ Config mode không hợp lệ (1/2/3)")
+        return
+
+    channel_ids = config.get("channel_ids", [])
+    if not channel_ids:
+        print("❌ Config thiếu channel_ids")
+        return
+
+    delay_value = float(config.get("delay", 0.2))
+    loop_count = int(config.get("loop_count", 0))
+    tag_ids = config.get("tag_ids", [])
+    
+    tags_string = " ".join([f"<@{uid}>" for uid in tag_ids]) if tag_ids else ""
+
+    print(Colorate.Horizontal(Colors.cyan_to_blue, f"🚀 HEADLESS | MODE: {choice} | LOOP: {'∞' if loop_count == 0 else loop_count}"))
+
+    # 2. Đọc contents
+    contents = read_encrypted_file(file_ngon)
+    if not contents:
+        print(f"❌ File {file_ngon}.enc đang trống!")
+        return
+
+    # 3. Đọc tokens
+    tokens = read_encrypted_file("token.txt")
+    if not tokens:
+        print("❌ token.txt.enc trống!")
+        return
+
+    # 4. Đọc proxies
+    proxies = []
+    prx_lines = read_encrypted_file("prx.txt")
+    for line in prx_lines:
+        line = line.strip()
+        if not line:
+            continue
+        p = line.split(':')
+        if len(p) == 4:
+            proxies.append(f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}")
+        elif len(p) == 2:
+            proxies.append(f"http://{p[0]}:{p[1]}")
+
+    shared_bag = SharedBag(contents) if choice in ('2', '3') else None
+
+    clients = []
+    sessions = []
+    for t in tokens:
+        c = TurboClient(t, contents, choice, shared_bag, proxies, delay_value, tags_string, channel_ids)
+        s = AsyncSession(impersonate="chrome120")
+        c.session = s
+        clients.append(c)
+        sessions.append(s)
 
     try:
-        menu = """
-    [ 1 ] TREO TRỤ THÁNG NĂM
-    [ 2 ] NHÂY TREO THÁNG NĂM
-    [ 3 ] TREO GÕ NĂM THÁNG
-        """
-        print(Colorate.Horizontal(Colors.cyan_to_blue, menu))
-
-        choice = input(Colorate.Horizontal(Colors.yellow_to_red, "👉 Nhập lựa chọn (1/2/3): ")).strip()
-
-        if choice == '1':
-            file_ngon = "ngon.txt"
-            print(Colorate.Horizontal(Colors.green_to_yellow, "\n=> TREO (gộp file thành 1 trụ dài)"))
-        elif choice == '2':
-            file_ngon = "ngonnhay.txt"
-            print(Colorate.Horizontal(Colors.green_to_yellow, "\n=> NHÂY (random chống trùng)"))
-        elif choice == '3':
-            file_ngon = "ngongo.txt"
-            print(Colorate.Horizontal(Colors.green_to_yellow, "\n=> GÕ (random chống trùng)"))
-        else:
-            print("❌ Lựa chọn không hợp lệ!")
-            return
-
-        # Đọc file nội dung từ .enc
-        contents = read_encrypted_file(file_ngon)
-        if not contents:
-            print(f"❌ File {file_ngon}.enc đang trống hoặc không tồn tại!")
-            return
-
-        tag_choice = input(Colorate.Horizontal(Colors.yellow_to_red, "🎯 Tag người dùng? (y/n): ")).strip().lower()
-
-        tags_string = ""
-        if tag_choice == 'y':
-            ids_raw = input(Colorate.Horizontal(Colors.yellow_to_red, "👉 ID user cần Tag (cách nhau bằng dấu phẩy): ")).strip()
-            tag_list = [f"<@{uid.strip()}>" for uid in ids_raw.split(",") if uid.strip()]
-            tags_string = " ".join(tag_list)
-            if tags_string:
-                print(Colorate.Horizontal(Colors.green_to_yellow, f"✔️ Đã nạp {len(tag_list)} ID tag."))
-        else:
-            print(Colorate.Horizontal(Colors.cyan_to_blue, "➡️ Không tag."))
-
-        ids_raw = input(Colorate.Horizontal(Colors.yellow_to_red, "💬 ID KÊNH (cách nhau bằng dấu phẩy): ")).strip()
-        channel_ids = [int(i.strip()) for i in ids_raw.split(",") if i.strip()]
-
-        # Đọc token từ .enc
-        tokens = read_encrypted_file("token.txt")
-        if not tokens:
-            print("❌ token.txt.enc trống hoặc không tồn tại!")
-            return
-
-        # Đọc proxy từ .enc
-        proxies = []
-        prx_lines = read_encrypted_file("prx.txt")
-        for line in prx_lines:
-            line = line.strip()
-            if not line:
-                continue
-            p = line.split(':')
-            if len(p) == 4:
-                proxies.append(f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}")
-            elif len(p) == 2:
-                proxies.append(f"http://{p[0]}:{p[1]}")
-
-        while True:
+        tasks = [asyncio.create_task(c.run_loop(loop_count)) for c in clients]
+        await asyncio.gather(*tasks)
+    finally:
+        for s in sessions:
             try:
-                delay_input = input(Colorate.Horizontal(Colors.yellow_to_red, "⏱️ Delay mỗi tin/acc (giây, vd 0.2): ")).strip()
-                delay_value = float(delay_input)
-                if delay_value <= 0:
-                    print("⚠️ Delay phải > 0!")
-                    continue
-                break
-            except ValueError:
-                print("⚠️ Nhập số hợp lệ!")
+                await s.close()
+            except:
+                pass
 
-        while True:
-            try:
-                loop_input = input(Colorate.Horizontal(Colors.yellow_to_red, "🔁 Số vòng lặp mỗi acc (0 = vô hạn): ")).strip()
-                loop_count = int(loop_input)
-                if loop_count < 0:
-                    print("⚠️ Phải >= 0!")
-                    continue
-                break
-            except ValueError:
-                print("⚠️ Nhập số nguyên hợp lệ!")
-
-        print(Colorate.Horizontal(
-            Colors.red_to_yellow,
-            f"\n🚀 {len(tokens)} TOKENS BAY RANDOM | CHỨC NĂNG: {choice} | TAG: {'CÓ' if tags_string else 'KHÔNG'} | LOOP: {'∞' if loop_count == 0 else loop_count}\n"
-        ))
-        print("-" * 60)
-
-        shared_bag = SharedBag(contents) if choice in ('2', '3') else None
-
-        clients = []
-        sessions = []
-        for t in tokens:
-            c = TurboClient(t, contents, choice, shared_bag, proxies, delay_value, tags_string, channel_ids)
-            s = AsyncSession(impersonate="chrome120")
-            c.session = s
-            clients.append(c)
-            sessions.append(s)
-
-        try:
-            tasks = [asyncio.create_task(c.run_loop(loop_count)) for c in clients]
-            await asyncio.gather(*tasks)
-        finally:
-            for s in sessions:
-                try:
-                    await s.close()
-                except:
-                    pass
-
-    except Exception as e:
-        print(f"❌ Lỗi thực thi: {e}")
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nĐã dừng Tool thủ công!")
+    while True:
+        try:
+            asyncio.run(main())
+            break
+        except Exception:
+            time.sleep(5)
+            continue

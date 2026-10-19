@@ -48,4 +48,4 @@ jobs:
         env:
           BUILD_ID: ${{ github.run_id }}-${{ github.run_number }}
           RANDOM_SEED: ${{ github.run_attempt }}
-        run: python spam.py
+        run: python spamcannew.py

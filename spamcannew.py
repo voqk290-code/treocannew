@@ -1,3 +1,5 @@
+# language: Python, file: spam.py, target: Linux (GitHub Actions), Python 3.10+
+# pip install curl_cffi aiofiles pystyle
 import asyncio
 import random
 import json
@@ -10,64 +12,21 @@ import sys
 try:
     import aiofiles
     from curl_cffi.requests import AsyncSession
-    from pystyle import Colorate, Colors, Center, System
+    from pystyle import Colorate, Colors
 except ImportError:
     print("Vui lòng cài đặt thư viện bằng lệnh: pip install curl_cffi aiofiles pystyle")
-    exit()
+    sys.exit(1)
 
-MAX_CONCURRENT_REQUESTS = 10
 RAINBOW_7 = [196, 208, 226, 46, 51, 21, 129]
 RESET = "\033[0m"
 
-SKIP_WORDS = ("next", "skip", "boqua")
 
-
-def clear_screen():
-    System.Clear()
-
-
-def _rgb_ansi(idx):
-    return f"\033[38;5;{idx}m"
-
-
-def rainbow_line(text, offset):
-    out = []
-    for i, ch in enumerate(text):
-        color = RAINBOW_7[(i + offset) % len(RAINBOW_7)]
-        out.append(f"{_rgb_ansi(color)}{ch}")
-    out.append(RESET)
-    return "".join(out)
-
-
-def display_info_banner():
-    banner = r"""
- ██╗  ██╗██╗    ██╗███╗   ██╗ ██████╗
- ██║ ██╔╝██║    ██║████╗  ██║██╔════╝
- █████╔╝ ██║ █╗ ██║██╔██╗ ██║██║  ███╗
- ██╔═██╗ ██║███╗██║██║╚██╗██║██║   ██║
- ██║  ██╗╚███╔███╔╝██║ ╚████║╚██████╔╝
- ╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═══╝ ╚═════╝
-    """
-    box_content = """
-    TOOL SPAM DISCORD - BẢN TỐI ƯU HÓA PRO
-    [+] Coder: KWNG
-    [+] Chức năng: Treo Trụ, Nhây, Gõ
-    """
-
-    title_lines = banner.strip("\n").split("\n")
-    box_lines = box_content.strip("\n").split("\n")
-
-    print()
-    for line in title_lines:
-        print(rainbow_line(line.center(60), 0))
-    print()
-    for line in box_lines:
-        print(rainbow_line(line.center(60), 0))
-    print()
-
-
-def is_skip(text):
-    return text.strip().lower() in SKIP_WORDS
+def init_files():
+    files = ['ngon.txt', 'ngonnhay.txt', 'ngongo.txt', 'token.txt', 'prx.txt']
+    for file in files:
+        if not os.path.exists(file):
+            with open(file, 'w', encoding='utf-8'):
+                pass
 
 
 def get_headers(token):
@@ -99,32 +58,6 @@ async def die_token(dead_token):
         pass
 
 
-def apply_format(content, fmt, tags_string):
-    outside_tags = ""
-    if not fmt or fmt == '1':
-        body = content
-    elif fmt == '2':
-        body = f"# {content}"
-    elif fmt == '3':
-        body = f"```{content}```"
-        outside_tags = tags_string
-        tags_string = ""
-    elif fmt == '4':
-        body = f"# ```{content}```"
-        outside_tags = tags_string
-        tags_string = ""
-    elif fmt == '5':
-        body = f"# > {content}"
-    else:
-        body = content
-
-    if outside_tags:
-        return f"{outside_tags}\n{body}"
-    if tags_string:
-        return f"{body} {tags_string}"
-    return body
-
-
 class SharedBag:
     def __init__(self, contents):
         self.original_contents = contents
@@ -139,17 +72,13 @@ class SharedBag:
             return self.bag.pop()
 
 
-class TokenSlot:
-    def __init__(self, token, channels, contents, mode_type, shared_bag, proxies, delay, tags_string, fmt, gif_link):
+class TurboClient:
+    def __init__(self, token, contents, mode_type, shared_bag, proxies, delay, tags_string, channels):
         self.token = token
         self.channels = channels
         self.mode_type = mode_type
-        self.fmt = fmt
-        self.gif_link = gif_link
-
         if self.mode_type == '1':
             self.treo_text = "\n".join(contents)
-
         self.shared_bag = shared_bag
         self.proxies = proxies
         self.headers = get_headers(token)
@@ -158,365 +87,208 @@ class TokenSlot:
         self.is_alive = True
         self.direct_cooldown_until = 0.0
         self.proxy_cooldowns = {}
+        self.msg_count = 0
+        self.session = None
 
     def choose_route(self):
         now = time.time()
-        available_direct = now >= self.direct_cooldown_until
-        available_proxies = [p for p in self.proxies if self.proxy_cooldowns.get(p, 0) <= now]
-        if not available_direct and not available_proxies:
-            return None, None
-        if available_direct and available_proxies:
-            if random.random() < 0.8:
-                return random.choice(available_proxies), "proxy"
-            return None, "direct"
-        if available_proxies:
+        if now < self.direct_cooldown_until:
+            available_proxies = [p for p in self.proxies if self.proxy_cooldowns.get(p, 0) <= now]
+            if not available_proxies:
+                return None, None
             return random.choice(available_proxies), "proxy"
+        if self.proxies:
+            if random.random() < 0.8:
+                available_proxies = [p for p in self.proxies if self.proxy_cooldowns.get(p, 0) <= now]
+                if available_proxies:
+                    return random.choice(available_proxies), "proxy"
         return None, "direct"
 
-    async def fire_typing(self, session, channel_id):
-        url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
-        proxy, _ = self.choose_route()
-        try:
-            await session.post(url, headers=self.headers, proxy=proxy, timeout=3)
-        except:
-            pass
-
-    def build_content(self):
-        if self.mode_type == '1':
-            base_content = self.treo_text
-            if self.tags_string:
-                final_content = f"{base_content}\n\n{self.tags_string}"
-            else:
-                final_content = base_content
-            if self.gif_link:
-                final_content = f"{self.gif_link}\n{final_content}"
-            return final_content
-        return None
-
-    async def fast_post(self, session, channel_id):
+    async def send_one(self, channel_id):
         if not self.is_alive:
             return None
 
-        asyncio.create_task(self.fire_typing(session, channel_id))
         url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
 
         if self.mode_type == '1':
-            final_content = self.build_content()
+            base_content = self.treo_text
         else:
             base_content = await self.shared_bag.get_random_line()
-            final_content = apply_format(base_content, self.fmt, self.tags_string)
+
+        if self.tags_string:
+            if self.mode_type == '1':
+                final_content = f"{base_content}\n\n{self.tags_string}"
+            else:
+                final_content = f"{base_content} {self.tags_string}"
+        else:
+            final_content = base_content
 
         payload = {"content": final_content, "tts": False}
 
-        proxy, route = self.choose_route()
-        if route is None:
-            return 0.2
+        asyncio.create_task(self._typing(channel_id))
 
-        try:
-            resp = await session.post(
-                url,
-                headers=self.headers,
-                json=payload,
-                proxy=proxy,
-                timeout=10
-            )
-            p_log = proxy.split('@')[-1] if proxy else "TRỰC TIẾP"
+        for _ in range(3):
+            proxy, route = self.choose_route()
+            if route is None:
+                await asyncio.sleep(0.5)
+                continue
+            try:
+                resp = await self.session.post(url, headers=self.headers, json=payload, proxy=proxy, timeout=10)
+                p_log = proxy.split('@')[-1] if proxy else "TRỰC TIẾP"
+                ts = datetime.now().strftime('%H:%M:%S')
 
-            if resp.status_code in [200, 201]:
-                msg = f"[{datetime.now().strftime('%H:%M:%S')}] ✔️ GỬI THÀNH CÔNG | Token: {self.token[:15]}... | Tuyến: {p_log}"
-                print(Colorate.Horizontal(Colors.green_to_white, msg))
-                return self.delay
+                if resp.status_code in (200, 201):
+                    self.msg_count += 1
+                    print(Colorate.Horizontal(
+                        Colors.green_to_white,
+                        f"[{ts}] ✔️ GỬI OK | {self.token[:12]}... | {p_log} | Cid: {str(channel_id)[-4:]}"
+                    ))
+                    return max(0.01, self.delay + random.uniform(-0.05, 0.05))
 
-            elif resp.status_code == 400:
-                print(Colorate.Horizontal(Colors.red_to_white, f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ LỖI 400 | Trụ quá dài (vượt 2000 kí tự), hãy giảm bớt dòng!"))
-                return self.delay
+                if resp.status_code == 400:
+                    return self.delay
 
-            elif resp.status_code == 401:
-                print(Colorate.Horizontal(Colors.red_to_white, f"[{datetime.now().strftime('%H:%M:%S')}] 💀 DIE TOKEN | {self.token[:15]}..."))
-                self.is_alive = False
-                await die_token(self.token)
-                return None
+                if resp.status_code == 401:
+                    print(Colorate.Horizontal(Colors.red_to_white, f"[{ts}] 💀 DIE | {self.token[:12]}..."))
+                    self.is_alive = False
+                    await die_token(self.token)
+                    return None
 
-            elif resp.status_code == 429:
-                try:
-                    retry = float(resp.json().get('retry_after', 3.0))
-                except:
-                    retry = 3.0
+                if resp.status_code == 429:
+                    try:
+                        retry = float(resp.json().get('retry_after', 3.0))
+                    except:
+                        retry = 3.0
+                    if proxy:
+                        self.proxy_cooldowns[proxy] = time.time() + retry
+                    else:
+                        self.direct_cooldown_until = time.time() + retry
+                    return retry
+
+                if resp.status_code == 403:
+                    print(f"[{ts}] 🔐 403 | {self.token[:12]}...")
+                    return 30.0
+
+                if resp.status_code == 404:
+                    return 2.0
+
+            except Exception:
                 if proxy:
-                    self.proxy_cooldowns[proxy] = time.time() + retry
+                    self.proxy_cooldowns[proxy] = time.time() + 5.0
                 else:
-                    self.direct_cooldown_until = time.time() + retry
-                return self.delay
+                    self.direct_cooldown_until = time.time() + 5.0
+                await asyncio.sleep(0.5)
+        return 2.0
 
-            elif resp.status_code == 403:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔐 BỊ CHẶN (403) | {self.token[:15]}... | {p_log}")
-                return self.delay
+    async def _typing(self, channel_id):
+        url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
+        proxy, _ = self.choose_route()
+        try:
+            await self.session.post(url, headers=self.headers, proxy=proxy, timeout=3)
+        except:
+            pass
 
-            elif resp.status_code == 404:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] 🧨 LỖI ID CHAT (404) KHÔNG TÌM THẤY KÊNH")
-                return self.delay
-        except Exception:
-            if proxy:
-                self.proxy_cooldowns[proxy] = time.time() + 2.0
-            else:
-                self.direct_cooldown_until = time.time() + 2.0
-            return self.delay
-
-        return self.delay
-
-
-async def dispatch_loop(slots, channels, delay, semaphore):
-    async with AsyncSession(impersonate="chrome120") as session:
-        while True:
-            alive = [s for s in slots if s.is_alive]
-            if not alive:
+    async def run_loop(self, loop_count):
+        round_idx = 0
+        while self.is_alive:
+            if loop_count > 0 and round_idx >= loop_count:
                 break
-            slot = random.choice(alive)
-            cid = random.choice(channels)
-            async with semaphore:
-                wait = await slot.fast_post(session, cid)
+
+            cid = random.choice(self.channels)
+            wait = await self.send_one(cid)
+
             if wait is None:
-                continue
-            await asyncio.sleep(max(0.01, wait))
-
-
-def read_lines_from_file(path):
-    if not path:
-        return []
-    if not os.path.exists(path):
-        print(Colorate.Horizontal(Colors.red_to_white, f"❌ Không tìm thấy file: {path}"))
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        return [line.strip() for line in f if line.strip()]
-
-
-def ask_path(prompt, default_name):
-    print(Colorate.Horizontal(Colors.cyan_to_blue, f"(Để trống dùng mặc định: {default_name})"))
-    print(Colorate.Horizontal(Colors.cyan_to_blue, "(Host không gửi được dòng trống — gõ 'next' để dùng mặc định)"))
-    raw = input(Colorate.Horizontal(Colors.green_to_yellow, f"👉 {prompt}: ")).strip().strip('"').strip("'")
-    if not raw or is_skip(raw):
-        return default_name
-    return raw
-
-
-def input_tokens():
-    print(Colorate.Horizontal(Colors.cyan_to_blue, "\n===== NGUỒN TOKEN ====="))
-    print(Colorate.Horizontal(Colors.yellow_to_red, "1. Đọc từ file token"))
-    print(Colorate.Horizontal(Colors.yellow_to_red, "2. Nhập thủ công (gõ 'done' để chốt)"))
-    print(Colorate.Horizontal(Colors.yellow_to_red, "3. Cả hai (file + thủ công)\n"))
-
-    while True:
-        opt = input(Colorate.Horizontal(Colors.green_to_yellow, "👉 Chọn nguồn token (1/2/3): ")).strip()
-        if opt in ('1', '2', '3'):
-            break
-        print("⚠️ Chọn 1, 2 hoặc 3.")
-
-    file_tokens = []
-    if opt in ('1', '3'):
-        token_path = ask_path("Đường dẫn file token", "token.txt")
-        file_tokens = read_lines_from_file(token_path)
-        if file_tokens:
-            print(Colorate.Horizontal(Colors.cyan_to_blue, f"➡️ Đọc {len(file_tokens)} token từ {token_path}."))
-
-    manual_tokens = []
-    if opt in ('2', '3'):
-        print(Colorate.Horizontal(Colors.yellow_to_red, "Nhập token thủ công, mỗi dòng 1 token. Gõ 'done' để chốt."))
-        while True:
-            line = input(Colorate.Horizontal(Colors.green_to_yellow, f"Token #{len(manual_tokens)+1} (hoặc 'done'): ")).strip()
-            if line.lower() == 'done':
                 break
-            if line:
-                manual_tokens.append(line)
+            if wait > 0:
+                await asyncio.sleep(wait)
 
-    if opt == '1':
-        return file_tokens
-    if opt == '2':
-        return manual_tokens
-    tokens = file_tokens + manual_tokens
-    print(Colorate.Horizontal(Colors.cyan_to_blue, f"➡️ Tổng {len(tokens)} token (file: {len(file_tokens)}, tay: {len(manual_tokens)})."))
-    return tokens
-
-
-def input_treo_manual():
-    print(Colorate.Horizontal(Colors.cyan_to_blue, "\n===== NHẬP NỘI DUNG TREO ====="))
-    print(Colorate.Horizontal(Colors.yellow_to_red, "Nhập từng dòng nội dung. Gõ 'done' để chốt."))
-    lines = []
-    while True:
-        line = input(Colorate.Horizontal(Colors.green_to_yellow, f"Dòng #{len(lines)+1} (hoặc 'done'): "))
-        if line.strip().lower() == 'done':
-            break
-        if line.strip():
-            lines.append(line.strip())
-    return lines
-
-
-def input_format_menu():
-    menu = """
-    ===== CHỌN FORMAT =====
-    [ 1 ] Thường
-    [ 2 ] Bự: # nội dung
-    [ 3 ] Codeblock: ``` nội dung ```
-    [ 4 ] Bự + CBL: # ``` nội dung ```
-    [ 5 ] Ghi chú: # > nội dung
-    """
-    print(Colorate.Horizontal(Colors.cyan_to_blue, menu))
-    while True:
-        fmt = input(Colorate.Horizontal(Colors.yellow_to_red, "👉 Chọn format (1-5): ")).strip()
-        if fmt in ('1', '2', '3', '4', '5'):
-            return fmt
-        print("⚠️ Chọn 1-5.")
-
-
-def input_tag_scope():
-    print(Colorate.Horizontal(Colors.cyan_to_blue, "\n===== TAG ====="))
-    print(Colorate.Horizontal(Colors.yellow_to_red, "1. Không tag"))
-    print(Colorate.Horizontal(Colors.yellow_to_red, "2. Tag user"))
-    print(Colorate.Horizontal(Colors.yellow_to_red, "3. Tag @everyone"))
-    while True:
-        opt = input(Colorate.Horizontal(Colors.green_to_yellow, "👉 Chọn (1/2/3): ")).strip()
-        if opt == '1':
-            return ""
-        if opt == '2':
-            ids_raw = input(Colorate.Horizontal(Colors.yellow_to_red, "👉 Nhập ID user (cách nhau dấu phẩy, 'next' để bỏ qua): ")).strip()
-            if is_skip(ids_raw) or not ids_raw:
-                return ""
-            tag_list = [f"<@{uid.strip()}>" for uid in ids_raw.split(",") if uid.strip()]
-            if tag_list:
-                print(Colorate.Horizontal(Colors.green_to_yellow, f"✔️ Đã nạp {len(tag_list)} ID tag."))
-            return " ".join(tag_list)
-        if opt == '3':
-            return "@everyone"
-        print("⚠️ Chọn 1, 2 hoặc 3.")
-
-
-def load_proxies():
-    print(Colorate.Horizontal(Colors.cyan_to_blue, "\n===== PROXY ====="))
-    print(Colorate.Horizontal(Colors.cyan_to_blue, "(Gõ 'next' để bỏ qua, không dùng proxy)"))
-    path = ask_path("Đường dẫn file proxy", "prx.txt")
-    if not path or not os.path.exists(path):
-        return []
-    proxies = []
-    with open(path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            p = line.split(':')
-            if len(p) == 4:
-                proxies.append(f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}")
-            elif len(p) == 2:
-                proxies.append(f"http://{p[0]}:{p[1]}")
-    if proxies:
-        print(Colorate.Horizontal(Colors.cyan_to_blue, f"➡️ Đã nạp {len(proxies)} proxy."))
-    return proxies
+            round_idx += 1
 
 
 async def main():
-    clear_screen()
-    display_info_banner()
+    init_files()
+
+    # 1. Đọc config
+    if not os.path.exists("config.json"):
+        print("❌ Thiếu file config.json")
+        return
+    with open("config.json", "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    choice = str(config.get("mode", "1"))
+    if choice == '1':
+        file_ngon = "ngon.txt"
+    elif choice == '2':
+        file_ngon = "ngonnhay.txt"
+    elif choice == '3':
+        file_ngon = "ngongo.txt"
+    else:
+        print("❌ Config mode không hợp lệ (1/2/3)")
+        return
+
+    channel_ids = config.get("channel_ids", [])
+    if not channel_ids:
+        print("❌ Config thiếu channel_ids")
+        return
+
+    delay_value = float(config.get("delay", 0.2))
+    loop_count = int(config.get("loop_count", 0))
+    tag_ids = config.get("tag_ids", [])
+    
+    tags_string = " ".join([f"<@{uid}>" for uid in tag_ids]) if tag_ids else ""
+
+    print(Colorate.Horizontal(Colors.cyan_to_blue, f"🚀 HEADLESS MODE | CHỨC NĂNG: {choice} | LOOP: {'∞' if loop_count == 0 else loop_count}"))
+
+    # 2. Đọc contents
+    with open(file_ngon, "r", encoding="utf-8") as f:
+        contents = [line.strip() for line in f if line.strip()]
+
+    if not contents:
+        print(f"❌ File {file_ngon} đang trống!")
+        return
+
+    # 3. Đọc tokens
+    with open("token.txt", "r") as f:
+        tokens = [l.strip() for l in f if l.strip()]
+
+    if not tokens:
+        print("❌ token.txt trống!")
+        return
+
+    # 4. Đọc proxies
+    proxies = []
+    if os.path.exists("prx.txt"):
+        with open("prx.txt", "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                p = line.split(':')
+                if len(p) == 4:
+                    proxies.append(f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}")
+                elif len(p) == 2:
+                    proxies.append(f"http://{p[0]}:{p[1]}")
+
+    shared_bag = SharedBag(contents) if choice in ('2', '3') else None
+
+    clients = []
+    sessions = []
+    for t in tokens:
+        c = TurboClient(t, contents, choice, shared_bag, proxies, delay_value, tags_string, channel_ids)
+        s = AsyncSession(impersonate="chrome120")
+        c.session = s
+        clients.append(c)
+        sessions.append(s)
 
     try:
-        menu = """
-    [ 1 ] TREO TRỤ THÁNG NĂM
-    [ 2 ] NHÂY TREO THÁNG NĂM
-    [ 3 ] TREO GÕ NĂM THÁNG
-        """
-        print(Colorate.Horizontal(Colors.cyan_to_blue, menu))
-
-        choice = input(Colorate.Horizontal(Colors.yellow_to_red, "👉 Nhập lựa chọn của bạn (1/2/3): ")).strip()
-
-        contents = []
-        gif_link = ""
-
-        if choice == '1':
-            print(Colorate.Horizontal(Colors.green_to_yellow, "\n=> Đã chọn TREO (Gộp nội dung thành Trụ dài)"))
-            print(Colorate.Horizontal(Colors.cyan_to_blue, "Nguồn nội dung:"))
-            print(Colorate.Horizontal(Colors.yellow_to_red, "1. Đọc từ file"))
-            print(Colorate.Horizontal(Colors.yellow_to_red, "2. Nhập tay"))
-            while True:
-                src = input(Colorate.Horizontal(Colors.green_to_yellow, "👉 Chọn (1/2): ")).strip()
-                if src in ('1', '2'):
-                    break
-            if src == '1':
-                path = ask_path("Đường dẫn file nội dung treo", "ngon.txt")
-                contents = read_lines_from_file(path)
-            else:
-                contents = input_treo_manual()
-
-            print()
-            print(Colorate.Horizontal(Colors.cyan_to_blue, "Có kèm link GIF không?"))
-            print(Colorate.Horizontal(Colors.yellow_to_red, "1. Không"))
-            print(Colorate.Horizontal(Colors.yellow_to_red, "2. Có (nhập link)"))
-            while True:
-                gif_opt = input(Colorate.Horizontal(Colors.green_to_yellow, "👉 Chọn (1/2): ")).strip()
-                if gif_opt == '1':
-                    gif_link = ""
-                    break
-                if gif_opt == '2':
-                    gif_raw = input(Colorate.Horizontal(Colors.yellow_to_red, "👉 Nhập link GIF ('next' để bỏ qua): ")).strip()
-                    gif_link = "" if is_skip(gif_raw) else gif_raw
-                    break
-        elif choice == '2':
-            print(Colorate.Horizontal(Colors.green_to_yellow, "\n=> Đã chọn NHÂY (Random chống trùng)"))
-            path = ask_path("Đường dẫn file nội dung nhây", "ngonnhay.txt")
-            contents = read_lines_from_file(path)
-        elif choice == '3':
-            print(Colorate.Horizontal(Colors.green_to_yellow, "\n=> Đã chọn GÕ (Random chống trùng)"))
-            path = ask_path("Đường dẫn file nội dung gõ", "ngongo.txt")
-            contents = read_lines_from_file(path)
-        else:
-            print("❌ Lựa chọn không hợp lệ!")
-            return
-
-        if not contents:
-            print("❌ Nội dung trống! Điền file hoặc nhập tay rồi mở lại tool.")
-            return
-
-        fmt = input_format_menu()
-        tags_string = input_tag_scope()
-
-        ids_raw = input(Colorate.Horizontal(Colors.yellow_to_red, "💬 ID KÊNH CHAT (Ngăn cách bằng dấu phẩy): ")).strip()
-        channel_ids = [int(i.strip()) for i in ids_raw.split(",") if i.strip()]
-
-        if not channel_ids:
-            print("❌ Chưa nhập ID kênh chat!")
-            return
-
-        tokens = input_tokens()
-
-        if not tokens:
-            print("❌ Không có token nào!")
-            return
-
-        proxies = load_proxies()
-
-        while True:
+        tasks = [asyncio.create_task(c.run_loop(loop_count)) for c in clients]
+        await asyncio.gather(*tasks)
+    finally:
+        for s in sessions:
             try:
-                delay_input = input(Colorate.Horizontal(Colors.yellow_to_red, "⏱️ Nhập Delay (giây, ví dụ 0.1): ")).strip()
-                if is_skip(delay_input) or not delay_input:
-                    delay_value = 0.1
-                    print(Colorate.Horizontal(Colors.cyan_to_blue, "➡️ Delay mặc định 0.1s."))
-                    break
-                delay_value = float(delay_input)
-                if delay_value <= 0:
-                    print("⚠️ Delay phải là số dương!")
-                    continue
-                break
-            except ValueError:
-                print("⚠️ Vui lòng nhập một số hợp lệ!")
-
-        print(Colorate.Horizontal(Colors.red_to_yellow, f"\n🚀 ĐANG KHỞI CHẠY {len(tokens)} TOKENS | CHỨC NĂNG: {choice} | FMT: {fmt} | TAG: {'CÓ' if tags_string else 'KHÔNG'} | GIF: {'CÓ' if gif_link else 'KHÔNG'}\n"))
-        print("-" * 60)
-
-        shared_bag = SharedBag(contents) if choice in ['2', '3'] else None
-
-        slots = [TokenSlot(t, channel_ids, contents, choice, shared_bag, proxies, delay_value, tags_string, fmt, gif_link) for t in tokens]
-
-        sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-        await dispatch_loop(slots, channel_ids, delay_value, sem)
-
-    except Exception as e:
-        print(f"❌ Lỗi thực thi: {e}")
+                await s.close()
+            except:
+                pass
 
 
 if __name__ == "__main__":

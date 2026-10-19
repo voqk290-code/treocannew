@@ -14,19 +14,29 @@ try:
     from curl_cffi.requests import AsyncSession
     from pystyle import Colorate, Colors
 except ImportError:
-    print("Vui lòng cài đặt thư viện bằng lệnh: pip install curl_cffi aiofiles pystyle")
     sys.exit(1)
 
-RAINBOW_7 = [196, 208, 226, 46, 51, 21, 129]
-RESET = "\033[0m"
+# PHẢI TRÙNG VỚI KEY TRONG ENCRYPTOR.PY
+SECRET_KEY = "k3y_b4o_m4t_cu4_ban_2024"
 
 
-def init_files():
-    files = ['ngon.txt', 'ngonnhay.txt', 'ngongo.txt', 'token.txt', 'prx.txt']
-    for file in files:
-        if not os.path.exists(file):
-            with open(file, 'w', encoding='utf-8'):
-                pass
+def xor_decrypt(data: str, key: str) -> str:
+    return "".join(chr(ord(c) ^ ord(key[i % len(key)])) for i, c in enumerate(data))
+
+
+def read_encrypted_file(filepath):
+    """Đọc file .enc, giải mã Base64 -> XOR -> List các dòng."""
+    enc_path = filepath + ".enc"
+    if not os.path.exists(enc_path):
+        return []
+    try:
+        with open(enc_path, "r", encoding="utf-8") as f:
+            b64_data = f.read().strip()
+        raw_data = base64.b64decode(b64_data).decode("utf-8")
+        decrypted = xor_decrypt(raw_data, SECRET_KEY)
+        return decrypted.splitlines()
+    except Exception:
+        return []
 
 
 def get_headers(token):
@@ -206,14 +216,16 @@ class TurboClient:
 
 
 async def main():
-    init_files()
-
-    # 1. Đọc config
-    if not os.path.exists("config.json"):
-        print("❌ Thiếu file config.json")
+    # 1. Đọc config từ file .enc
+    config_lines = read_encrypted_file("config.json")
+    if not config_lines:
+        print("❌ Thiếu file config.json.enc")
         return
-    with open("config.json", "r", encoding="utf-8") as f:
-        config = json.load(f)
+    try:
+        config = json.loads("\n".join(config_lines))
+    except Exception as e:
+        print(f"❌ Lỗi parse JSON config: {e}")
+        return
 
     choice = str(config.get("mode", "1"))
     if choice == '1':
@@ -237,37 +249,32 @@ async def main():
     
     tags_string = " ".join([f"<@{uid}>" for uid in tag_ids]) if tag_ids else ""
 
-    print(Colorate.Horizontal(Colors.cyan_to_blue, f"🚀 HEADLESS MODE | CHỨC NĂNG: {choice} | LOOP: {'∞' if loop_count == 0 else loop_count}"))
+    print(Colorate.Horizontal(Colors.cyan_to_blue, f"🚀 HEADLESS | MODE: {choice} | LOOP: {'∞' if loop_count == 0 else loop_count}"))
 
     # 2. Đọc contents
-    with open(file_ngon, "r", encoding="utf-8") as f:
-        contents = [line.strip() for line in f if line.strip()]
-
+    contents = read_encrypted_file(file_ngon)
     if not contents:
-        print(f"❌ File {file_ngon} đang trống!")
+        print(f"❌ File {file_ngon}.enc đang trống!")
         return
 
     # 3. Đọc tokens
-    with open("token.txt", "r") as f:
-        tokens = [l.strip() for l in f if l.strip()]
-
+    tokens = read_encrypted_file("token.txt")
     if not tokens:
-        print("❌ token.txt trống!")
+        print("❌ token.txt.enc trống!")
         return
 
     # 4. Đọc proxies
     proxies = []
-    if os.path.exists("prx.txt"):
-        with open("prx.txt", "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                p = line.split(':')
-                if len(p) == 4:
-                    proxies.append(f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}")
-                elif len(p) == 2:
-                    proxies.append(f"http://{p[0]}:{p[1]}")
+    prx_lines = read_encrypted_file("prx.txt")
+    for line in prx_lines:
+        line = line.strip()
+        if not line:
+            continue
+        p = line.split(':')
+        if len(p) == 4:
+            proxies.append(f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}")
+        elif len(p) == 2:
+            proxies.append(f"http://{p[0]}:{p[1]}")
 
     shared_bag = SharedBag(contents) if choice in ('2', '3') else None
 
@@ -292,7 +299,10 @@ async def main():
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nĐã dừng Tool thủ công!")
+    while True:
+        try:
+            asyncio.run(main())
+            break
+        except Exception:
+            time.sleep(5)
+            continue
